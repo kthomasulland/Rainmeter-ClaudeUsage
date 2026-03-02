@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(powershell -Command:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -NoProfile -File:*)",
+      "Bash(Remove-Item \"C:\\\\Users\\\\kevin\\\\OneDrive\\\\Documents\\\\Rainmeter\\\\Skins\\\\ClaudeUsage\\\\@Resources\\\\usage-log.txt\" -ErrorAction SilentlyContinue)",
+      "Bash(Get-Content \"C:\\\\Users\\\\kevin\\\\OneDrive\\\\Documents\\\\Rainmeter\\\\Skins\\\\ClaudeUsage\\\\@Resources\\\\usage-log.txt\" -Tail 30)",
+      "Bash(powershell -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\kevin\\\\OneDrive\\\\Documents\\\\Rainmeter\\\\Skins\\\\ClaudeUsage\\\\@Resources\\\\GetUsage.ps1\")"
+    ]
+  }
+}
