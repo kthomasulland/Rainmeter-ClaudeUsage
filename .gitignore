@@ -1,2 +1,4 @@
 @Resources/usage-data.inc
 @Resources/usage-log.txt
+@Resources/claude-sessions.json
+@Resources/claude-status.inc

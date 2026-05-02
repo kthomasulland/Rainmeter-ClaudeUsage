@@ -6,7 +6,18 @@
       "Bash(powershell -ExecutionPolicy Bypass -NoProfile -File:*)",
       "Bash(Remove-Item \"C:\\\\Users\\\\kevin\\\\OneDrive\\\\Documents\\\\Rainmeter\\\\Skins\\\\ClaudeUsage\\\\@Resources\\\\usage-log.txt\" -ErrorAction SilentlyContinue)",
       "Bash(Get-Content \"C:\\\\Users\\\\kevin\\\\OneDrive\\\\Documents\\\\Rainmeter\\\\Skins\\\\ClaudeUsage\\\\@Resources\\\\usage-log.txt\" -Tail 30)",
-      "Bash(powershell -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\kevin\\\\OneDrive\\\\Documents\\\\Rainmeter\\\\Skins\\\\ClaudeUsage\\\\@Resources\\\\GetUsage.ps1\")"
+      "Bash(powershell -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\kevin\\\\OneDrive\\\\Documents\\\\Rainmeter\\\\Skins\\\\ClaudeUsage\\\\@Resources\\\\GetUsage.ps1\")",
+      "Bash(git:*)",
+      "Bash(powershell.exe:*)",
+      "Bash(xxd:*)",
+      "Bash(\"C:/Program Files/Rainmeter/Rainmeter.exe\" !Refresh:*)",
+      "Bash(/tmp/verify-fix.ps1:*)",
+      "Bash(/tmp/verify-fix2.ps1:*)",
+      "Read(//c/Users/kevin/OneDrive/Documents/Rainmeter/Skins/ClaudeUsage/$USERPROFILE/.claude/projects/C--Users-kevin-OneDrive-Documents-Rainmeter-Skins-ClaudeUsage/**)",
+      "Read(//c/Users/kevin/OneDrive/Documents/Rainmeter/Skins/ClaudeUsage/$USERPROFILE/.claude/**)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(json.dumps\\(h,indent=2\\)\\) for h in d.get\\(''''hooks'''',{}\\).values\\(\\) for h in \\(h if isinstance\\(h,list\\) else [h]\\)]\")",
+      "PowerShell('{\"session_id\":\"test-working\",\"hook_event_name\":\"UserPromptSubmit\",\"cwd\":\"C:/test\"}' | powershell.exe -ExecutionPolicy Bypass -NoProfile -File \"@Resources\\\\ClaudeHook.ps1\"; Get-Content \"@Resources\\\\claude-status.inc\")",
+      "PowerShell('{\"session_id\":\"test-working\",\"hook_event_name\":\"Stop\",\"cwd\":\"C:/test\"}' | powershell.exe -ExecutionPolicy Bypass -NoProfile -File \"@Resources\\\\ClaudeHook.ps1\"; Get-Content \"@Resources\\\\claude-status.inc\")"
     ]
   }
 }
