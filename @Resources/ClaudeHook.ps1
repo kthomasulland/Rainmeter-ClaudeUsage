@@ -26,39 +26,29 @@ function Write-StatusData {
 }
 
 try {
-    # --- Dismiss mode: clear all alerts (triggered by clicking the alert banner) ---
+    # Track whether to bump the Stop ping (one-shot sound trigger for Rainmeter)
+    $fireStopPing = $false
+
     if ($Dismiss) {
-        Write-Log "Dismiss requested - clearing all sessions"
-        Write-StatusData @(
-            "[Variables]",
-            "ClaudeAlertCount=0",
-            "ClaudeBannerCount=0",
-            "ClaudePermissionCount=0",
-            "ClaudeIdleCount=0",
-            "ClaudeWorkingCount=0",
-            "ClaudeAlertType=none",
-            "ClaudeAlertText=All sessions clear"
-        )
-        [System.IO.File]::WriteAllText($SessionsFile, '{"sessions":{}}', [System.Text.UTF8Encoding]::new($false))
-        $rainmeterExe = "C:\Program Files\Rainmeter\Rainmeter.exe"
-        if (Test-Path $rainmeterExe) {
-            & $rainmeterExe "!Refresh" "ClaudeUsage" "ClaudeUsage"
-        }
-        exit 0
+        Write-Log "Dismiss requested - clearing idle/permission sessions (working sessions retained)"
+        $hookEvent = "Dismiss"
+        $sessionId = $null
+        $notifType = $null
+        $cwd       = $null
+    } else {
+        # --- 1.2: Parse hook event JSON from stdin ---
+        $inputJson = $input | Out-String
+        $event = $inputJson | ConvertFrom-Json
+
+        $sessionId   = $event.session_id
+        $hookEvent   = $event.hook_event_name
+        $notifType   = $event.notification_type   # null for non-Notification events
+        $cwd         = $event.cwd
+
+        # Log full JSON payload for field discovery (temporary diagnostic)
+        Write-Log "RAW JSON: $($inputJson.Trim())"
+        Write-Log "Hook received: event=$hookEvent, notifType=$notifType, session=$sessionId"
     }
-
-    # --- 1.2: Parse hook event JSON from stdin ---
-    $inputJson = $input | Out-String
-    $event = $inputJson | ConvertFrom-Json
-
-    $sessionId   = $event.session_id
-    $hookEvent   = $event.hook_event_name
-    $notifType   = $event.notification_type   # null for non-Notification events
-    $cwd         = $event.cwd
-
-    # Log full JSON payload for field discovery (temporary diagnostic)
-    Write-Log "RAW JSON: $($inputJson.Trim())"
-    Write-Log "Hook received: event=$hookEvent, notifType=$notifType, session=$sessionId"
 
     # --- 1.3: Load claude-sessions.json with file-lock retry ---
     $sessions = $null
@@ -97,20 +87,33 @@ try {
         }
 
         if ($null -ne $state) {
-            $sessionMap[$sessionId] = [PSCustomObject]@{
-                state = $state
-                cwd   = $cwd
-                since = (Get-Date -Format "o")   # ISO 8601 round-trip format
+            # For idle: track repeat count. First idle_prompt = silent yellow,
+            # second+ = sound (escalation). Permission resets idleCount.
+            $idleCount = 0
+            if ($state -eq "idle") {
+                $existing = $sessionMap[$sessionId]
+                if ($existing -and $existing.state -eq "idle" -and $existing.PSObject.Properties['idleCount']) {
+                    $idleCount = [int]$existing.idleCount + 1
+                } else {
+                    $idleCount = 1
+                }
             }
-            Write-Log "Added/updated session $sessionId as state=$state"
+            $sessionMap[$sessionId] = [PSCustomObject]@{
+                state     = $state
+                cwd       = $cwd
+                since     = (Get-Date -Format "o")   # ISO 8601 round-trip format
+                idleCount = $idleCount
+            }
+            Write-Log "Added/updated session $sessionId as state=$state idleCount=$idleCount"
         }
     }
     # --- 1.5a: UserPromptSubmit -> mark session as working (Claude is processing) ---
     elseif ($hookEvent -eq "UserPromptSubmit") {
         $sessionMap[$sessionId] = [PSCustomObject]@{
-            state = "working"
-            cwd   = $cwd
-            since = (Get-Date -Format "o")
+            state     = "working"
+            cwd       = $cwd
+            since     = (Get-Date -Format "o")
+            idleCount = 0
         }
         Write-Log "Marked session $sessionId as state=working"
     }
@@ -119,6 +122,18 @@ try {
         if ($sessionMap.ContainsKey($sessionId)) {
             $sessionMap.Remove($sessionId)
             Write-Log "Removed session $sessionId (event: $hookEvent)"
+        }
+        if ($hookEvent -eq "Stop") { $fireStopPing = $true }
+    }
+    # --- Dismiss -> remove only idle/permission sessions; leave working alone ---
+    elseif ($hookEvent -eq "Dismiss") {
+        $toRemove = @($sessionMap.Keys | Where-Object {
+            $s = $sessionMap[$_].state
+            $s -eq "idle" -or $s -eq "permission"
+        })
+        $toRemove | ForEach-Object {
+            Write-Log "Dismiss: removing $_ (state=$($sessionMap[$_].state))"
+            $sessionMap.Remove($_)
         }
     }
 
@@ -156,9 +171,26 @@ try {
     $permCount    = ($sessionMap.Values | Where-Object { $_.state -eq "permission" } | Measure-Object).Count
     $idleCount    = ($sessionMap.Values | Where-Object { $_.state -eq "idle" }       | Measure-Object).Count
     $workingCount = ($sessionMap.Values | Where-Object { $_.state -eq "working" }    | Measure-Object).Count
-    # AlertCount = needs-user-attention only (drives sound + pulse). BannerCount also includes working.
+    # Idle sessions where Claude Code has nudged 2+ times -> escalate to sound.
+    $idleEscalated = ($sessionMap.Values | Where-Object {
+        $_.state -eq "idle" -and $_.PSObject.Properties['idleCount'] -and [int]$_.idleCount -ge 2
+    } | Measure-Object).Count
+    # AlertCount = needs-user-attention (drives pulse). BannerCount also includes working.
     $alertCount  = $permCount + $idleCount
     $bannerCount = $alertCount + $workingCount
+
+    # --- Stop ping: preserve last value from existing claude-status.inc; bump on Stop ---
+    $lastStopPing = "0"
+    if (Test-Path $StatusFile) {
+        try {
+            $existingStatus = [System.IO.File]::ReadAllText($StatusFile)
+            if ($existingStatus -match 'ClaudeStopPing=(\d+)') { $lastStopPing = $matches[1] }
+        } catch { }
+    }
+    if ($fireStopPing) {
+        $lastStopPing = [string][DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+        Write-Log "Stop ping bumped to $lastStopPing"
+    }
 
     # Determine display type (permission > idle > working > none)
     if     ($permCount    -gt 0) { $alertType = "permission" }
@@ -182,7 +214,7 @@ try {
         $alertText = "Working... ($workingCount $s)"
     }
 
-    Write-Log "Summary: banner=$bannerCount, perm=$permCount, idle=$idleCount, working=$workingCount, type=$alertType"
+    Write-Log "Summary: banner=$bannerCount, perm=$permCount, idle=$idleCount(esc=$idleEscalated), working=$workingCount, type=$alertType, stopPing=$lastStopPing"
 
     # --- 1.9: Write claude-status.inc ---
     Write-StatusData @(
@@ -191,9 +223,11 @@ try {
         "ClaudeBannerCount=$bannerCount",
         "ClaudePermissionCount=$permCount",
         "ClaudeIdleCount=$idleCount",
+        "ClaudeIdleEscalated=$idleEscalated",
         "ClaudeWorkingCount=$workingCount",
         "ClaudeAlertType=$alertType",
-        "ClaudeAlertText=$alertText"
+        "ClaudeAlertText=$alertText",
+        "ClaudeStopPing=$lastStopPing"
     )
 
     # --- 1.10: Trigger Rainmeter refresh ---
